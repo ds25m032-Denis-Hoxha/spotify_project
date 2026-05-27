@@ -1,0 +1,39 @@
+# Core Data Handling
+pandas
+numpy
+pyarrow
+
+# Database
+duckdb
+
+# Machine Learning
+scikit-learn
+xgboost
+
+# Visualization
+matplotlib
+seaborn
+plotly
+
+# Notebook Environment
+jupyter
+notebook
+ipykernel
+
+# Audio / Music Features
+librosa
+
+# Utilities
+tqdm
+
+# Experiment Tracking
+mlflow
+
+# Optional Recommendation / Similarity
+scipy
+
+# Optional Dimensionality Reduction
+umap-learn
+
+# Optional Model Explainability
+shap
