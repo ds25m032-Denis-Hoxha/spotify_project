@@ -1,0 +1,11 @@
+data/
+*.csv
+*.parquet
+*.duckdb
+*.db
+*.sqlite
+mlruns/
+__pycache__/
+.ipynb_checkpoints/
+.venv/
+.env
