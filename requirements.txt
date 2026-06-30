@@ -37,3 +37,9 @@ umap-learn
 
 # Optional Model Explainability
 shap
+
+# for demo
+streamlit
+joblib
+rapidfuzz
+pyarrow
