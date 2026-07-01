@@ -30,9 +30,17 @@ class RecommenderSession:
         self.seed_idxs = list(seed_idxs)
         self.shown_idxs = set(seed_idxs)
 
+    def _remove_existing_feedback(self, track_idx):
+        """Allow users to change feedback without duplicating the same track."""
+        self.liked_idxs = [idx for idx in self.liked_idxs if idx != track_idx]
+        self.disliked_idxs = [idx for idx in self.disliked_idxs if idx != track_idx]
+        self.neutral_idxs = [idx for idx in self.neutral_idxs if idx != track_idx]
+
     # Feedback with like, neutral and dislike buttons
     def register_feedback(self, track_idx, label):
         self.shown_idxs.add(track_idx)
+        self._remove_existing_feedback(track_idx)
+
         if label == "like":
             self.liked_idxs.append(track_idx)
         elif label == "dislike":
@@ -40,8 +48,16 @@ class RecommenderSession:
         else:
             self.neutral_idxs.append(track_idx)  # seen only, no profile shift
 
+    def feedback_for(self, track_idx):
+        if track_idx in self.liked_idxs:
+            return "like"
+        if track_idx in self.disliked_idxs:
+            return "dislike"
+        if track_idx in self.neutral_idxs:
+            return "neutral"
+        return None
+
     # Profile construction (extended nb14 logic)
-    
     def _build_user_profile(self):
         seed_vectors = self.feature_matrix[self.seed_idxs] if self.seed_idxs else None
         liked_vectors = self.feature_matrix[self.liked_idxs] if self.liked_idxs else None
@@ -66,7 +82,6 @@ class RecommenderSession:
         return profile.reshape(1, -1)
 
     # Genre helpers from notebook 14
-
     def _collect_genres(self, indices):
         genres = []
         for idx in indices:
@@ -74,7 +89,6 @@ class RecommenderSession:
         return set(genres)
 
     # Recommendation
-
     def recommend(
         self,
         k=10,
@@ -106,7 +120,13 @@ class RecommenderSession:
                 candidates["eval_genres"].apply(lambda g: len(set(g) & disliked_genres) == 0)
             ]
 
-        candidates = candidates.drop_duplicates(subset=["name"], keep="first")
+        # Keep versions distinguishable: only collapse exact same title + artist if artist names exist.
+        duplicate_subset = ["name"]
+        for artist_col in ["artist_names", "artists_names", "artist_name", "artists_name", "artists", "artist"]:
+            if artist_col in candidates.columns:
+                duplicate_subset.append(artist_col)
+                break
+        candidates = candidates.drop_duplicates(subset=duplicate_subset, keep="first")
 
         recs = candidates.head(k).index.tolist()
         self.shown_idxs.update(recs)
