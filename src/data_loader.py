@@ -140,6 +140,7 @@ def load_everything():
         + recommender_df["release_year"].astype(str).str.lower().str.strip()
     )
 
+
     # align PCA audio features to the same row order/filter as recommender_df
     pca10_audio_features = pca10_audio_features.loc[recommender_df.index].reset_index(drop=True)
 

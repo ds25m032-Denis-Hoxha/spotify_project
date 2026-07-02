@@ -1,5 +1,37 @@
 import numpy as np
+import re
 
+
+def normalize_title(title):
+    title = str(title).lower().strip()
+
+    # normalize featuring syntax
+    title = title.replace("featuring", "feat.")
+    title = title.replace("feat ", "feat. ")
+
+    # remove punctuation differences
+    title = title.replace("(", "")
+    title = title.replace(")", "")
+    title = title.replace("[", "")
+    title = title.replace("]", "")
+
+    # remove common version suffixes
+    title = re.sub(
+        r"\s*-\s*(live|unplugged|remastered|remaster|single|album|radio|edit|version|deluxe|acoustic).*",
+        "",
+        title
+    )
+
+    title = re.sub(
+        r"\s+(live|unplugged|remastered|remaster|single|album|radio|edit|version|deluxe|acoustic)\s*$",
+        "",
+        title
+    )
+
+    # normalize whitespace
+    title = re.sub(r"\s+", " ", title)
+
+    return title.strip()
 
 class RecommenderSession:
     def __init__(
@@ -109,6 +141,7 @@ class RecommenderSession:
 
         candidates = self.recommender_df.iloc[indices[0]].copy()
         candidates["cosine_distance"] = distances[0]
+        candidates["similarity_score"] = (1 - candidates["cosine_distance"]).clip(0, 1)
 
         candidates = candidates[
             ~candidates.index.isin(self.shown_idxs)
@@ -117,6 +150,50 @@ class RecommenderSession:
         candidates = candidates[
             ~candidates["version_key"].isin(self.shown_keys)
         ]
+
+        # ----------------------------------------
+        # Remove songs already shown under another version
+        # ----------------------------------------
+        shown_title_artist = {
+            (
+                normalize_title(self.recommender_df.loc[idx, "name"]),
+                str(self.recommender_df.loc[idx, "artist_name"]).strip().lower()
+            )
+            for idx in self.shown_idxs
+        }
+
+        candidate_keys = list(
+            zip(
+                candidates["name"].apply(normalize_title),
+                candidates["artist_name"].fillna("").astype(str).str.strip().str.lower()
+            )
+        )
+
+        candidates = candidates[
+            [key not in shown_title_artist for key in candidate_keys]
+        ]
+
+        # ----------------------------------------
+        # Remove duplicates inside THIS batch
+        # ----------------------------------------
+        candidates["core_title"] = candidates["name"].apply(normalize_title)
+
+        candidates["core_artist"] = (
+            candidates["artist_name"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.lower()
+        )
+
+        candidates = candidates.drop_duplicates(
+            subset=["core_title", "core_artist"],
+            keep="first"
+        )
+
+        # ----------------------------------------
+        # THEN apply genre filters
+        # ----------------------------------------
 
         if require_liked_genre and self.liked_idxs:
             liked_genres = self._collect_genres(self.liked_idxs + self.seed_idxs)
@@ -141,7 +218,13 @@ class RecommenderSession:
             keep="first"
         )
 
-        recs = candidates.head(k).index.tolist()
+        top_candidates = candidates.head(k)
+
+        self.recommendation_scores = (
+            top_candidates["similarity_score"].to_dict()
+        )
+
+        recs = top_candidates.index.tolist()
 
         self.shown_idxs.update(recs)
 

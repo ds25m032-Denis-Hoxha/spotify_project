@@ -85,10 +85,10 @@ with st.sidebar:
         st.caption("Choose starting songs to begin.")
     else:
         session = st.session_state.session
-        st.metric("Seed songs", len(session.seed_idxs))
-        st.metric("Liked", len(session.liked_idxs))
-        st.metric("Skipped", len(session.neutral_idxs))
-        st.metric("Disliked", len(session.disliked_idxs))
+        st.markdown(f"🎵 **Seeds:** {len(session.seed_idxs)}")
+        st.markdown(f"❤️ **Liked:** {len(session.liked_idxs)}")
+        st.markdown(f"😐 **Skipped:** {len(session.neutral_idxs)}")
+        st.markdown(f"❌ **Disliked:** {len(session.disliked_idxs)}")
 
     st.divider()
 
@@ -114,7 +114,12 @@ with st.sidebar:
 
         st.divider()
 
-        st.markdown("### Genre filters")
+        st.markdown("### Genre filters *(Experimental)*")
+
+        st.caption(
+            "These filters are still experimental because many songs belong to multiple genres. "
+            "Using them may reduce recommendation diversity."
+        )
         require_liked_genre = st.checkbox(
             "Only show tracks sharing a genre with your likes",
             value=False
@@ -153,11 +158,16 @@ if st.session_state.session is None:
 else:
     session = st.session_state.session
 
-    st.subheader("Recommendation batch")
-    st.caption("Mark these tracks, then request the next batch.")
+    st.subheader("Recommended for You")
+    st.caption("Rate these tracks, then generate your next personalized batch.")
 
-    for idx in st.session_state.current_recs:
-        recommendation_card(idx, recommender_df, session)
+    for i, idx in enumerate(st.session_state.current_recs, start=1):
+        recommendation_card(
+            idx,
+            recommender_df,
+            session,
+            i
+        )
         st.divider()
 
     st.divider()

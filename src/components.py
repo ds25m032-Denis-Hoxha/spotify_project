@@ -8,8 +8,21 @@ def inject_card_css():
     st.markdown(
         """
         <style>
+        section.main > div {
+            max-width: 820px;
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.markdown(
+        """
+        <style>
         .stApp {
-            background: #f7f7f5;
+            background: #f5f5f5;
             color: #1f1f1f;
         }
 
@@ -109,81 +122,120 @@ def search_and_select_ui(recommender_df, max_seeds=10):
         st.session_state.search_reset_counter = 0
 
     query = st.text_input(
-        "Search for a song",
-        placeholder="e.g. Billie Jean",
+        "Search for a song, artist, album, or combination",
+        placeholder="e.g. Layla Eric Clapton, Beat It Michael Jackson, Zayn Pillowtalk",
         key=f"song_search_{st.session_state.search_reset_counter}"
     )
 
     if query:
         q = query.lower().strip()
 
-        exact = recommender_df[
-            recommender_df["name"].str.lower().str.strip() == q
+        search_base = recommender_df.copy()
+
+        search_base["search_text"] = (
+            search_base["name"].fillna("").astype(str).str.lower()
+            + " "
+            + search_base["artist_name"].fillna("").astype(str).str.lower()
+            + " "
+            + search_base["album_name"].fillna("").astype(str).str.lower()
+        )
+
+        search_base["title_text"] = (
+            search_base["name"].fillna("").astype(str).str.lower().str.strip()
+        )
+
+        # exact title OR exact combined text contains full query
+        exact = search_base[
+            (search_base["title_text"] == q)
+            | (search_base["search_text"].str.contains(q, na=False))
         ].copy()
         exact["search_rank"] = 0
 
-        starts = recommender_df[
-            recommender_df["name"].str.lower().str.startswith(q, na=False)
+        # title starts with query
+        starts_title = search_base[
+            search_base["title_text"].str.startswith(q, na=False)
         ].copy()
-        starts["search_rank"] = 1
+        starts_title["search_rank"] = 1
 
-        contains = recommender_df[
-            recommender_df["name"].str.lower().str.contains(q, na=False)
+        # any title / artist / album contains query
+        contains_any = search_base[
+            search_base["search_text"].str.contains(q, na=False)
         ].copy()
-        contains["search_rank"] = 2
+        contains_any["search_rank"] = 2
 
-        choices = recommender_df["name"].tolist()
+        # fuzzy search against title + artist + album
+        choices = search_base["search_text"].tolist()
+
         fuzzy_results = process.extract(
-            query,
+            q,
             choices,
-            limit=20,
+            limit=30,
             scorer=fuzz.WRatio,
-            score_cutoff=90
+            score_cutoff=80
         )
 
         fuzzy_indices = [
-            recommender_df.index[pos_idx]
+            search_base.index[pos_idx]
             for _, _, pos_idx in fuzzy_results
         ]
 
-        fuzzy = recommender_df.loc[fuzzy_indices].copy()
+        fuzzy = search_base.loc[fuzzy_indices].copy()
         fuzzy["search_rank"] = 3
 
-        direct_results = pd.concat(
-            [exact, starts, contains],
+        search_df = pd.concat(
+            [exact, starts_title, contains_any, fuzzy],
             axis=0
-        ).drop_duplicates(subset=["version_key"])
-
-        if len(direct_results) >= 5:
-            search_df = direct_results
-        else:
-            search_df = pd.concat(
-                [direct_results, fuzzy],
-                axis=0
-            )
-
-        search_df = search_df.drop_duplicates(subset=["version_key"])
+        )
 
         query_words = [word for word in q.split() if len(word) > 2]
 
+        short_query = len(query_words) == 1 and len(query_words[0]) <= 5
+
+        if short_query:
+            search_df["exact_title_match"] = (
+                search_df["name"].fillna("").str.lower().str.strip() == q
+            )
+        else:
+            search_df["exact_title_match"] = False
+
         if query_words:
-            search_text = (
-                search_df["name"].fillna("").str.lower()
-                + " "
-                + search_df.get("artist_name", "").fillna("").str.lower()
-                + " "
-                + search_df.get("album_name", "").fillna("").str.lower()
+            def count_matches(text):
+                text = str(text).lower()
+                return sum(word in text for word in query_words)
+
+            search_df["title_score"] = search_df["name"].apply(count_matches)
+            search_df["artist_score"] = search_df["artist_name"].apply(count_matches)
+            search_df["album_score"] = search_df["album_name"].apply(count_matches)
+
+            search_df["total_word_score"] = (
+                search_df["title_score"] * 3
+                + search_df["artist_score"] * 3
+                + search_df["album_score"]
             )
 
-            search_df = search_df[
-                search_df["search_rank"].lt(3)
-                | search_text.apply(lambda text: all(word in text for word in query_words))
-            ]
+            search_df["has_title_and_artist_match"] = (
+                (search_df["title_score"] > 0)
+                & (search_df["artist_score"] > 0)
+            )
+        else:
+            search_df["title_score"] = 0
+            search_df["artist_score"] = 0
+            search_df["album_score"] = 0
+            search_df["total_word_score"] = 0
+            search_df["has_title_and_artist_match"] = False
 
         search_df = (
             search_df
             .drop_duplicates(subset=["version_key"])
-            .sort_values(["search_rank", "popularity"], ascending=[True, False])
+            .sort_values(
+                [
+                    "exact_title_match",
+                    "search_rank",
+                    "title_score",
+                    "popularity"
+                ],
+                ascending=[False, True, False, False]
+            )
             .head(10)
         )
 
@@ -246,7 +298,7 @@ def search_and_select_ui(recommender_df, max_seeds=10):
     return st.session_state.seed_idxs
 
 
-def recommendation_card(idx, recommender_df, session):
+def recommendation_card(idx, recommender_df, session, number):
     row = recommender_df.loc[idx]
     genres = ", ".join(row["eval_genres"][:3]) if row["eval_genres"] else "—"
 
@@ -257,8 +309,31 @@ def recommendation_card(idx, recommender_df, session):
     )
 
     with st.container(border=True):
-        st.markdown(f"### {row['name']}")
-        st.caption(format_track_caption(row, f"🎵 {genres}"))
+        st.markdown(f"### 🎵 Recommendation {number}")
+        st.markdown(f"**{row['name']}**")
+        st.markdown(f"**{row['artist_name']}**")
+
+        similarity = getattr(session, "recommendation_scores", {}).get(idx)
+
+        if similarity is not None:
+            similarity_percent = int(similarity * 100)
+
+            if similarity_percent >= 85:
+                st.success(f"High match")
+            elif similarity_percent >= 70:
+                st.info(f"Good match")
+            else:
+                st.caption(f"Similar to your taste")
+
+        left, right = st.columns(2)
+
+        with left:
+            st.caption(f"💿 {row['album_name']}")
+            st.caption(f"🎵 {genres}")
+
+        with right:
+            st.caption(f"📅 {row['release_year']}")
+            st.caption(f"⭐ {int(row['popularity'])}")
 
         if idx in session.liked_idxs:
             st.success("✓ Added to your taste profile")
