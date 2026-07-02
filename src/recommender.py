@@ -32,14 +32,14 @@ class RecommenderSession:
         self.shown_idxs = set(seed_idxs)
 
         self.shown_keys = set(
-            self.recommender_df.loc[self.seed_idxs, "title_artist_key"]
+            self.recommender_df.loc[self.seed_idxs, "version_key"]
         )
 
     def register_feedback(self, track_idx, label):
         self.shown_idxs.add(track_idx)
 
         self.shown_keys.add(
-            self.recommender_df.loc[track_idx, "title_artist_key"]
+            self.recommender_df.loc[track_idx, "version_key"]
         )
 
         if track_idx in self.liked_idxs:
@@ -115,7 +115,7 @@ class RecommenderSession:
         ]
 
         candidates = candidates[
-            ~candidates["title_artist_key"].isin(self.shown_keys)
+            ~candidates["version_key"].isin(self.shown_keys)
         ]
 
         if require_liked_genre and self.liked_idxs:
@@ -137,7 +137,7 @@ class RecommenderSession:
             ]
 
         candidates = candidates.drop_duplicates(
-            subset=["title_artist_key"],
+            subset=["version_key"],
             keep="first"
         )
 
@@ -146,7 +146,7 @@ class RecommenderSession:
         self.shown_idxs.update(recs)
 
         self.shown_keys.update(
-            self.recommender_df.loc[recs, "title_artist_key"]
+            self.recommender_df.loc[recs, "version_key"]
         )
 
         return recs

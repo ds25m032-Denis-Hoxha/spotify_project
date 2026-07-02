@@ -28,7 +28,49 @@ if st.session_state.get("scroll_to_top", False):
     )
     st.session_state.scroll_to_top = False
 
-recommender_df, feature_matrix, knn_model, config = load_everything()
+try:
+    recommender_df, feature_matrix, knn_model, config = load_everything()
+except FileNotFoundError as exc:
+    st.error("The dashboard is working, but the recommender data files were not found.")
+
+    st.write("Please make sure the processed data and model files exist in:")
+
+    st.code(
+        """
+data/processed/
+data/processed/models/
+        """,
+        language="text"
+    )
+
+    st.write("Expected main files:")
+
+    st.code(
+        """
+tracks_with_predicted_genres.parquet
+audio_features_clean.parquet
+lyrics_features_valid_clean.parquet
+models/optimized_recommender_config.json
+models/pca10_audio_features.joblib
+        """,
+        language="text"
+    )
+
+    st.info("Run the project notebooks up to Notebook 14, or copy the processed data folder into the project.")
+
+    with st.expander("Technical details"):
+        st.code(str(exc), language="text")
+
+    st.stop()
+
+except Exception as exc:
+    st.error("The dashboard started, but something went wrong while loading the recommender data.")
+
+    with st.expander("Technical details"):
+        st.code(str(exc), language="text")
+
+    st.stop()
+
 
 if "session" not in st.session_state:
     st.session_state.session = None
@@ -51,15 +93,28 @@ with st.sidebar:
     st.divider()
 
     with st.expander("Advanced recommendation settings"):
+        st.markdown("### Model info")
+        st.markdown("**Active model:** Optimized Hybrid Recommender")
+
         st.caption(
-            f"Model weights — Spotify: {config['spotify_weight']}, "
-            f"Lyrics: {config['lyrics_weight']}, "
-            f"PCA Audio: {config['pca_audio_weight']}"
+            "This model combines three feature groups to calculate song similarity."
         )
+
+        st.write(f"Track audio features: **{int(config['spotify_weight'] * 100)}%**")
+        st.write(f"Lyrics features: **{int(config['lyrics_weight'] * 100)}%**")
+        st.write(f"PCA audio features: **{int(config['pca_audio_weight'] * 100)}%**")
+
+        st.divider()
+
+        st.markdown("### Feedback controls")
+        st.caption("These settings control how strongly your feedback changes the next batch.")
 
         liked_weight = st.slider("Like weight", 0.0, 2.0, 1.0, 0.1)
         disliked_weight = st.slider("Dislike weight", 0.0, 2.0, 0.5, 0.1)
 
+        st.divider()
+
+        st.markdown("### Genre filters")
         require_liked_genre = st.checkbox(
             "Only show tracks sharing a genre with your likes",
             value=False
@@ -107,22 +162,27 @@ else:
 
     st.divider()
 
-col_next, col_reset = st.columns([2, 1])
+    col_next, col_reset = st.columns([2, 1])
 
-with col_next:
-    if st.button("Generate next batch ▶", type="primary", use_container_width=True):
-        st.session_state.current_recs = session.recommend(
-            k=5,
-            require_liked_genre=require_liked_genre,
-            remove_disliked_genre=remove_disliked_genre,
-        )
-        st.session_state.scroll_to_top = True
-        st.rerun()
+    with col_next:
+        if st.button("Generate next batch ▶", type="primary", use_container_width=True):
+            st.session_state.current_recs = session.recommend(
+                k=5,
+                require_liked_genre=require_liked_genre,
+                remove_disliked_genre=remove_disliked_genre,
+            )
+            st.session_state.scroll_to_top = True
+            st.rerun()
 
-with col_reset:
-    if st.button("New session", use_container_width=True):
-        st.session_state.session = None
-        st.session_state.current_recs = []
-        st.session_state.seed_idxs = []
-        st.session_state.scroll_to_top = True
-        st.rerun()
+    with col_reset:
+        if st.button("New session", use_container_width=True):
+            st.session_state.session = None
+            st.session_state.current_recs = []
+            st.session_state.seed_idxs = []
+            st.session_state.scroll_to_top = True
+            st.rerun()
+
+st.divider()
+st.caption(
+    "Hybrid recommender using track audio features, lyrics features, and PCA-reduced audio features."
+)

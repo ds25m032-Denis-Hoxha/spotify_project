@@ -87,11 +87,32 @@ def spotify_embed(spotify_id, height=80):
     embed_url = f"https://open.spotify.com/embed/track/{spotify_id}?utm_source=generator"
     components.iframe(embed_url, height=height, scrolling=False)
 
+def format_track_caption(row, genres):
+    album = row.get("album_name", "Unknown Album")
+    year = row.get("release_year", "")
+
+    album_year = album
+    if year:
+        album_year = f"{album} • {year}"
+
+    return (
+        f"{row.get('artist_name', 'Unknown Artist')} · "
+        f"{album_year} · {genres} · popularity {int(row['popularity'])}"
+    )
+
+
 def search_and_select_ui(recommender_df, max_seeds=10):
     if "seed_idxs" not in st.session_state:
         st.session_state.seed_idxs = []
 
-    query = st.text_input("Search for a song", placeholder="e.g. Billie Jean")
+    if "search_reset_counter" not in st.session_state:
+        st.session_state.search_reset_counter = 0
+
+    query = st.text_input(
+        "Search for a song",
+        placeholder="e.g. Billie Jean",
+        key=f"song_search_{st.session_state.search_reset_counter}"
+    )
 
     if query:
         q = query.lower().strip()
@@ -131,7 +152,7 @@ def search_and_select_ui(recommender_df, max_seeds=10):
         direct_results = pd.concat(
             [exact, starts, contains],
             axis=0
-        ).drop_duplicates(subset=["title_artist_key"])
+        ).drop_duplicates(subset=["version_key"])
 
         if len(direct_results) >= 5:
             search_df = direct_results
@@ -141,9 +162,27 @@ def search_and_select_ui(recommender_df, max_seeds=10):
                 axis=0
             )
 
+        search_df = search_df.drop_duplicates(subset=["version_key"])
+
+        query_words = [word for word in q.split() if len(word) > 2]
+
+        if query_words:
+            search_text = (
+                search_df["name"].fillna("").str.lower()
+                + " "
+                + search_df.get("artist_name", "").fillna("").str.lower()
+                + " "
+                + search_df.get("album_name", "").fillna("").str.lower()
+            )
+
+            search_df = search_df[
+                search_df["search_rank"].lt(3)
+                | search_text.apply(lambda text: all(word in text for word in query_words))
+            ]
+
         search_df = (
             search_df
-            .drop_duplicates(subset=["title_artist_key"])
+            .drop_duplicates(subset=["version_key"])
             .sort_values(["search_rank", "popularity"], ascending=[True, False])
             .head(10)
         )
@@ -160,10 +199,8 @@ def search_and_select_ui(recommender_df, max_seeds=10):
 
                 with col1:
                     st.markdown(f"**{row['name']}**")
-                    st.caption(
-                        f"{row.get('artist_name', 'Unknown Artist')} · "
-                        f"{genres} · popularity {int(row['popularity'])}"
-                    )
+                    st.caption(format_track_caption(row, genres))
+
                     with st.expander("Preview"):
                         spotify_embed(row.get("spotify_id"), height=152)
 
@@ -179,6 +216,7 @@ def search_and_select_ui(recommender_df, max_seeds=10):
                         use_container_width=True
                     ):
                         st.session_state.seed_idxs.append(idx)
+                        st.session_state.search_reset_counter += 1
                         st.rerun()
 
     if st.session_state.seed_idxs:
@@ -195,10 +233,7 @@ def search_and_select_ui(recommender_df, max_seeds=10):
 
                 with col1:
                     st.markdown(f"**{row['name']}**")
-                    st.caption(
-                        f"{row.get('artist_name', 'Unknown Artist')} · "
-                        f"{seed_genres} · popularity {int(row['popularity'])}"
-                    )
+                    st.caption(format_track_caption(row, seed_genres))
 
                     with st.expander("Preview selected song"):
                         spotify_embed(row.get("spotify_id"), height=152)
@@ -223,10 +258,7 @@ def recommendation_card(idx, recommender_df, session):
 
     with st.container(border=True):
         st.markdown(f"### {row['name']}")
-        st.caption(
-            f"{row.get('artist_name', 'Unknown Artist')} · "
-            f"🎵 {genres} · Popularity {int(row['popularity'])}"
-        )
+        st.caption(format_track_caption(row, f"🎵 {genres}"))
 
         if idx in session.liked_idxs:
             st.success("✓ Added to your taste profile")

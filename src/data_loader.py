@@ -55,6 +55,12 @@ def _first_artist_id(artists_id):
     ids = _to_list(artists_id)
     return ids[0] if ids else None
 
+def _release_year(value):
+    if pd.isna(value):
+        return ""
+    value = str(value)
+    return value[:4] if len(value) >= 4 else value
+
 @st.cache_resource
 def load_everything():
     """
@@ -64,6 +70,7 @@ def load_everything():
     audio_features = pd.read_parquet(PROCESSED_DIR / "audio_features_clean.parquet")
     lyrics_features = pd.read_parquet(PROCESSED_DIR / "lyrics_features_valid_clean.parquet")
     artists = pd.read_parquet(PROCESSED_DIR / "artists_clean.parquet")
+    albums = pd.read_parquet(PROCESSED_DIR / "albums_clean.parquet")
 
     with open(MODELS_DIR / "optimized_recommender_config.json", "r") as f:
         config = json.load(f)
@@ -107,10 +114,30 @@ def load_everything():
 
     recommender_df["artist_name"] = recommender_df["artist_name"].fillna("Unknown Artist")
 
-    recommender_df["title_artist_key"] = (
+    albums_lookup = albums[["id", "name", "release_date"]].rename(
+        columns={
+            "id": "album_id",
+            "name": "album_name"
+        }
+    )
+
+    recommender_df = recommender_df.merge(
+        albums_lookup,
+        on="album_id",
+        how="left"
+    )
+
+    recommender_df["album_name"] = recommender_df["album_name"].fillna("Unknown Album")
+    recommender_df["release_year"] = recommender_df["release_date"].apply(_release_year)
+
+    recommender_df["version_key"] = (
         recommender_df["name"].str.lower().str.strip()
         + " | "
         + recommender_df["artist_name"].str.lower().str.strip()
+        + " | "
+        + recommender_df["album_name"].str.lower().str.strip()
+        + " | "
+        + recommender_df["release_year"].astype(str).str.lower().str.strip()
     )
 
     # align PCA audio features to the same row order/filter as recommender_df
